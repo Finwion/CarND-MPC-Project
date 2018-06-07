@@ -50,66 +50,43 @@ Self-Driving Car Engineer Nanodegree Program
 3. Compile: `cmake .. && make`
 4. Run it: `./mpc`.
 
-## Tips
 
-1. It's recommended to test the MPC on basic examples to see if your implementation behaves as desired. One possible example
-is the vehicle starting offset of a straight line (reference). If the MPC implementation is correct, after some number of timesteps
-(not too many) it should find and track the reference line.
-2. The `lake_track_waypoints.csv` file has the waypoints of the lake track. You could use this to fit polynomials and points and see of how well your model tracks curve. NOTE: This file might be not completely in sync with the simulator so your solution should NOT depend on it.
-3. For visualization this C++ [matplotlib wrapper](https://github.com/lava/matplotlib-cpp) could be helpful.
+## The Model
 
-## Editor Settings
+The model was based on the MPC quiz, with the modification of extending the equations to work with a 3rd order polynomial.
+The state has the following:
+* x position
+* y position
+* psi heading
+* velocity 
+* cte - Cross-track error 
+* epsi - psi error
 
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
+The actuators used are:
+* steering angle
+* acceleration 
 
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
+The kinematic equations used in `MPC.cpp` were:
+```C++
+      AD<double> f0 = coeffs[0] + coeffs[1] * x0 + coeffs[2] * pow(x0, 2) + coeffs[3] * pow(x0, 3);
+      AD<double> psides0 = CppAD::atan(coeffs[1] + 2 * coeffs[2] * x0 + 3 * coeffs[3] * pow(x0, 2));
+      fg[1 + x_start + t] = x1 - (x0 + v0 * CppAD::cos(psi0) * dt);
+      fg[1 + y_start + t] = y1 - (y0 + v0 * CppAD::sin(psi0) * dt);
+      fg[1 + psi_start + t] = psi1 - (psi0 + v0 * delta0 / Lf * dt);
+      fg[1 + v_start + t] = v1 - (v0 + a0 * dt);
+      fg[1 + cte_start + t] =
+          cte1 - ((f0 - y0) + (v0 * CppAD::sin(epsi0) * dt));
+      fg[1 + epsi_start + t] =
+          epsi1 - ((psi0 - psides0) + v0 * delta0 / Lf * dt);
+```
 
-## Code Style
+## Timestep Length and Elapsed Duration (N & dt)
 
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
+N = 25 and dt = 0.05 was chosen, which results in a 1.25second evaluation period. This is the same as the lecture & quiz values. A larger dt like 0.5 resulted in prediction that caused the car to drive off the side of the road.
 
-## Project Instructions and Rubric
+## Polynomial Fitting and MPC Preprocessing
+The waypoints are converted from the map coordinate reference to the vehicle coordinate reference. Then they are fitted to a 3rd order polynomial. 
 
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
+## Model Predictive Control with Latency
 
-More information is only accessible by people who are already enrolled in Term 2
-of CarND. If you are enrolled, see [the project page](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/f1820894-8322-4bb3-81aa-b26b3c6dcbaf/lessons/b1ff3be0-c904-438e-aad3-2b5379f0e0c3/concepts/1a2255a0-e23c-44cf-8d41-39b8a3c8264a)
-for instructions and the project rubric.
-
-## Hints!
-
-* You don't have to follow this directory structure, but if you do, your work
-  will span all of the .cpp files here. Keep an eye out for TODOs.
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to we ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
+The model compensates for the simulator latency of 100ms by adjusting the initial state vector for the x and psi values. The x given to the MPC is actually the velocity * latency value. This is the position that we project the car to be at in 100ms. A similar calculation is done using the psi term in the initial state vector. It is calculated as -velocity * steer_value / Lf * latency. This seem to smoothen the response of the car when handling curves.
